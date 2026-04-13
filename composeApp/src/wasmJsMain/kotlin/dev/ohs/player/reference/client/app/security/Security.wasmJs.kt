@@ -4,6 +4,7 @@ import eu.anifantakis.lib.ksafe.KSafe
 import eu.anifantakis.lib.ksafe.KSafeMemoryPolicy
 
 
+// webMain
 actual val platformKSafe = KSafe(
     fileName = "user_prefs",
     memoryPolicy = KSafeMemoryPolicy.PLAIN_TEXT

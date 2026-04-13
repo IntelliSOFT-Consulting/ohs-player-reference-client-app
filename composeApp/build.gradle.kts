@@ -30,10 +30,10 @@ kotlin {
     
     jvm()
     
-    js {
+   /* js {
         browser()
         binaries.executable()
-    }
+    }*/
     
     @OptIn(ExperimentalWasmDsl::class)
     wasmJs {

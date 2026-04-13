@@ -5,16 +5,15 @@ import android.content.Context
 
 
 class MyApplication : Application() {
-    companion object {
-        private lateinit var instance: MyApplication
 
-        fun getAppContext(): Context {
-            return instance.applicationContext
-        }
+    companion object {
+        // applicationContext is safe — it lives as long as the app process
+        lateinit var appContext: Context
+            private set
     }
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
+        appContext = applicationContext
     }
 }
