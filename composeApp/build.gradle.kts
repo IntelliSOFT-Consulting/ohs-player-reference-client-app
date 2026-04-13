@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -55,6 +56,10 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation("org.jetbrains.compose.material:material-icons-extended:1.7.3")
+            implementation("eu.anifantakis:ksafe:1.7.1")
+            implementation("eu.anifantakis:ksafe-compose:1.7.1")
+            implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlincrypto.sha2)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

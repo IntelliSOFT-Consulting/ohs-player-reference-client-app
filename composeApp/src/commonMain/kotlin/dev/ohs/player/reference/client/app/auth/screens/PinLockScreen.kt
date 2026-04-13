@@ -31,6 +31,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +44,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +61,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.ohs.player.reference.client.app.security.PinManager
+import dev.ohs.player.reference.client.app.security.platformEncryptedKSafe
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -72,46 +76,56 @@ fun PinLockScreen(
     onSuccess: (pin: String) -> Unit = {},
     onAdminLogin: () -> Unit = {},
     onSettings: () -> Unit = {},
-    onForgotPin: () -> Unit = {},
-    correctPin: String = "1234"
+    onForgotPin: () -> Unit = {}
 ) {
     var enteredPin by remember { mutableStateOf("") }
     var validationState by remember { mutableStateOf(ValidationState.EMPTY) }
     var showForgotDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // Assuming you have a way to get your PinManager instance (e.g., from a DI framework)
+    val pinManager = remember { PinManager(platformEncryptedKSafe) }
+    var isFirstTimeSetup by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        // Check if a PIN already exists when the screen loads
+        val existingPin = platformEncryptedKSafe.get("user_pin_data", "")
+        isFirstTimeSetup = existingPin.isEmpty()
+        isLoading = false
+    }
     fun resetPin() {
         enteredPin = ""
         validationState = ValidationState.EMPTY
     }
 
     fun validatePin() {
-        validationState = when {
-            enteredPin.length < PIN_LENGTH -> ValidationState.EMPTY
-            enteredPin == correctPin -> ValidationState.VALID
-            else -> ValidationState.INVALID
-        }
+        scope.launch {
+            if (isFirstTimeSetup) {
+                val success = pinManager.createPin(enteredPin)
+                validationState = if (success) ValidationState.VALID else ValidationState.INVALID
+            } else {
+                val isValid = pinManager.validatePin(enteredPin)
+                validationState = if (isValid) ValidationState.VALID else ValidationState.INVALID
+            }
 
-        when (validationState) {
-            ValidationState.VALID -> {
-                scope.launch {
+            when (validationState) {
+                ValidationState.VALID -> {
                     delay(300)
                     onSuccess(enteredPin)
                     resetPin()
                 }
-            }
 
-            ValidationState.INVALID -> {
-                scope.launch {
+                ValidationState.INVALID -> {
                     delay(800)
                     resetPin()
                 }
-            }
 
-            else -> {}
+                else -> {}
+            }
         }
     }
-
 
     fun addDigit(digit: String) {
         if (enteredPin.length < PIN_LENGTH && validationState != ValidationState.VALID) {
@@ -186,124 +200,144 @@ fun PinLockScreen(
             )
         }
     ) { paddingValues ->
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            Column(
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                // Logo / Icon at top
-                Box(
+                    .padding(paddingValues)
+            )
+            {
+                Column(
                     modifier = Modifier
-                        .size(60.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFE3F2FD)),
-                    contentAlignment = Alignment.Center
+                        .fillMaxSize()
+                        .padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Text(
-                        text = "🔒",
-                        fontSize = 32.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // App Name
-                Text(
-                    text = appName,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.Black
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Device Name / Instruction
-                Text(
-                    text = deviceName,
-                    fontSize = 14.sp,
-                    color = Color.Gray,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // PIN Indicators
-                Row(
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.padding(6.dp)
-                ) {
-                    repeat(PIN_LENGTH) { index ->
-                        Box(
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .size(12.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    when {
-                                        validationState == ValidationState.VALID -> Color.Green
-                                        validationState == ValidationState.INVALID -> Color.Red
-                                        index < enteredPin.length -> Color(0xFF2196F3)
-                                        else -> Color.LightGray
-                                    }
-                                )
+                    // Logo / Icon at top
+                    Box(
+                        modifier = Modifier
+                            .size(60.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE3F2FD)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "🔒",
+                            fontSize = 32.sp
                         )
                     }
-                }
 
-                // Error Message
-                if (validationState == ValidationState.INVALID) {
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // App Name
                     Text(
-                        text = "Invalid PIN",
-                        fontSize = 14.sp,
-                        color = Color.Red,
-                        modifier = Modifier.padding(top = 8.dp)
+                        text = appName,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.Black
                     )
-                }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                // Forgot PIN Button
-                TextButton(
-                    onClick = { showForgotDialog = true },
-                    modifier = Modifier.padding(1.dp)
-                ) {
+                    // Device Name / Instruction
                     Text(
-                        text = "Forgot PIN?",
+                        text = deviceName,
                         fontSize = 14.sp,
-                        color = Color(0xFF2196F3),
-                        fontWeight = FontWeight.Medium
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center
                     )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // PIN Indicators
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(6.dp)
+                    ) {
+                        repeat(PIN_LENGTH) { index ->
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = 8.dp)
+                                    .size(12.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when {
+                                            validationState == ValidationState.VALID -> Color.Green
+                                            validationState == ValidationState.INVALID -> Color.Red
+                                            index < enteredPin.length -> Color(0xFF2196F3)
+                                            else -> Color.LightGray
+                                        }
+                                    )
+                            )
+                        }
+                    }
+
+                    // Error Message
+                    if (validationState == ValidationState.INVALID) {
+                        Text(
+                            text = "Invalid PIN",
+                            fontSize = 14.sp,
+                            color = Color.Red,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Forgot PIN Button
+                    TextButton(
+                        onClick = { showForgotDialog = true },
+                        modifier = Modifier.padding(1.dp)
+                    ) {
+                        Text(
+                            text = "Forgot PIN?",
+                            fontSize = 14.sp,
+                            color = Color(0xFF2196F3),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    KeypadRow(
+                        listOf(
+                            "1" to { addDigit("1") },
+                            "2" to { addDigit("2") },
+                            "3" to { addDigit("3") })
+                    )
+                    KeypadRow(
+                        listOf(
+                            "4" to { addDigit("4") },
+                            "5" to { addDigit("5") },
+                            "6" to { addDigit("6") })
+                    )
+                    KeypadRow(
+                        listOf(
+                            "7" to { addDigit("7") },
+                            "8" to { addDigit("8") },
+                            "9" to { addDigit("9") })
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Spacer(modifier = Modifier.width(70.dp + 16.dp)) // Width of one button + spacer
+                        KeypadButton("0") { addDigit("0") }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        KeypadButton("←") { deleteDigit() }
+                    }
+
+
+
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
-                KeypadRow(listOf("1" to { addDigit("1") }, "2" to { addDigit("2") }, "3" to { addDigit("3") }))
-                KeypadRow(listOf("4" to { addDigit("4") }, "5" to { addDigit("5") }, "6" to { addDigit("6") }))
-                KeypadRow(listOf("7" to { addDigit("7") }, "8" to { addDigit("8") }, "9" to { addDigit("9") }))
-
-// For last row - start with a spacer to push buttons to the right positions
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Spacer(modifier = Modifier.width(70.dp + 16.dp)) // Width of one button + spacer
-                    KeypadButton("0") { addDigit("0") }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    KeypadButton("←") { deleteDigit() }
-                }
-
-
-
-                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }
 
-    // Forgot PIN Dialog - matching your screenshot exactly
     if (showForgotDialog) {
         AlertDialog(
             onDismissRequest = { showForgotDialog = false },
@@ -357,6 +391,7 @@ fun PinLockScreen(
         )
     }
 }
+
 @Composable
 fun KeypadRow(
     buttons: List<Pair<String, () -> Unit>>
