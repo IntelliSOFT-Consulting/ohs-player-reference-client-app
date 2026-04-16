@@ -1,0 +1,16 @@
+{
+  "appId": "ohs-reference-app",
+  "configType": "application",
+  "appTitle": "OHS Player",
+  "remoteSyncPageSize": 100,
+  "languages": [
+    "en",
+    "sw",
+    "fr"
+  ],
+  "syncInterval": 30,
+  "loginConfig": {
+    "showLogo": true,
+    "enablePin": true
+  }
+}

@@ -33,6 +33,7 @@ enum class PinSetupStep {
 @Composable
 fun SetPinLockScreen(
     appName: String = "App Name",
+    showLogo: Boolean,
     onSetupComplete: () -> Unit = {}
 ) {
     val pinManager = remember { PinManager(platformEncryptedKSafe) }

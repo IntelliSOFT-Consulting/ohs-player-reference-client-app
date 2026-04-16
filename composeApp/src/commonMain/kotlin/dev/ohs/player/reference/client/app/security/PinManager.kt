@@ -18,23 +18,14 @@ class PinManager(
      * Returns true if successful, false if a PIN already exists.
      */
     suspend fun createPin(newPin: String): Boolean {
-        // Check if a PIN already exists to avoid overwriting
         val existingPinData = secureStorage.get(pinStorageKey, "")
         if (existingPinData.isNotEmpty()) {
             return false
         }
-
-        // 1. Generate a random salt
         val salt = generateSalt()
-
-        // 2. Hash the PIN with the salt
         val hashedPin = hashPinWithSalt(newPin, salt)
-
-        // 3. Create a data object and serialize it to JSON
         val pinData = PinData(hashedPin = hashedPin, salt = salt)
         val jsonString = Json.encodeToString(pinData)
-
-        // 4. Store the JSON string in the encrypted KSafe vault
         secureStorage.put(pinStorageKey, jsonString, mode = KSafeWriteMode.Encrypted())
 
         return true
@@ -66,7 +57,6 @@ class PinManager(
         }
     }
 
-    // --- Hashing and Salting Functions (to be implemented) ---
     private fun generateSalt(): String {
         return Random.nextBytes(32).toHexString()
     }

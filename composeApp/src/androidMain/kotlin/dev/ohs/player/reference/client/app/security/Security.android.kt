@@ -9,7 +9,7 @@ actual val platformKSafe by lazy {
     KSafe(
         context = MyApplication.appContext.applicationContext,
         fileName = "user_prefs",
-        memoryPolicy = KSafeMemoryPolicy.PLAIN_TEXT
+        memoryPolicy = KSafeMemoryPolicy.ENCRYPTED
     )
 }
 actual val platformEncryptedKSafe by lazy {

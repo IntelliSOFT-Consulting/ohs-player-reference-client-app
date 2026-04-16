@@ -1,0 +1,12 @@
+{
+  "appId": "test-reference-app",
+  "configType": "test",
+  "appTitle": "Test OHS Player",
+  "remoteSyncPageSize": 50,
+  "languages": ["en", "sw", "fr", "es"],
+  "syncInterval": 15,
+  "loginConfig": {
+    "showLogo": true,
+    "enablePin": true
+  }
+}

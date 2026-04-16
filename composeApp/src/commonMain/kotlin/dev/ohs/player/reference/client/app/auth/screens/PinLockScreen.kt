@@ -73,6 +73,7 @@ private const val PIN_LENGTH = 4
 fun PinLockScreen(
     appName: String = "App Name",
     deviceName: String = "Enter pin for W4VV-01",
+    showLogo: Boolean,
     onSuccess: (pin: String) -> Unit = {},
     onAdminLogin: () -> Unit = {},
     onSettings: () -> Unit = {},
