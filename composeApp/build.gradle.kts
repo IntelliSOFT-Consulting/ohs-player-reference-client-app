@@ -60,6 +60,7 @@ kotlin {
             implementation("eu.anifantakis:ksafe-compose:1.7.1")
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlincrypto.sha2)
+            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

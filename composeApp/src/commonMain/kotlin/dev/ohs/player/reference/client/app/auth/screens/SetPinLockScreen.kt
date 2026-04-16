@@ -68,9 +68,9 @@ fun SetPinLockScreen(
                             // PINs match — save
                             isLoading = true
                             scope.launch {
-                                val success = pinManager.createPin(enteredPin)
+                                val results = pinManager.createPin(enteredPin)
                                 isLoading = false
-                                if (success) {
+                                if (results.isSuccess) {
                                     currentStep = PinSetupStep.SUCCESS
                                     delay(2000)
                                     onSetupComplete()

@@ -62,9 +62,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.ohs.player.reference.client.app.security.PinManager
+import dev.ohs.player.reference.client.app.security.ValidatePinResult
 import dev.ohs.player.reference.client.app.security.platformEncryptedKSafe
+import dev.ohs.player.reference.client.app.utils.TimeUtils
+import dev.ohs.player.reference.client.app.utils.TimeUtils.formatLockoutTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
 
 private const val PIN_LENGTH = 4
 
@@ -89,7 +93,9 @@ fun PinLockScreen(
     val pinManager = remember { PinManager(platformEncryptedKSafe) }
     var isFirstTimeSetup by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
-
+    var remainingAttempts by remember { mutableStateOf(0) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showError by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         // Check if a PIN already exists when the screen loads
         val existingPin = platformEncryptedKSafe.get("user_pin_data", "")
@@ -101,29 +107,81 @@ fun PinLockScreen(
         validationState = ValidationState.EMPTY
     }
 
+    fun showError(message: String) {
+        errorMessage = message
+        showError = true
+    }
+
     fun validatePin() {
         scope.launch {
             if (isFirstTimeSetup) {
                 val success = pinManager.createPin(enteredPin)
-                validationState = if (success) ValidationState.VALID else ValidationState.INVALID
+                validationState =
+                    if (success.isSuccess) ValidationState.VALID else ValidationState.INVALID
             } else {
-                val isValid = pinManager.validatePin(enteredPin)
-                validationState = if (isValid) ValidationState.VALID else ValidationState.INVALID
-            }
-
-            when (validationState) {
-                ValidationState.VALID -> {
-                    delay(300)
-                    onSuccess(enteredPin)
-                    resetPin()
+                val result = pinManager.validatePin(enteredPin)
+                validationState = when (result) {
+                    is ValidatePinResult.Success -> ValidationState.VALID
+                    is ValidatePinResult.Failed -> ValidationState.INVALID
+                    is ValidatePinResult.Locked -> ValidationState.LOCKED
+                    is ValidatePinResult.PinNotFound -> ValidationState.NOT_FOUND
+                    is ValidatePinResult.Error -> ValidationState.ERROR
                 }
+                when (result) {
+                    is ValidatePinResult.Failed -> {
+                        remainingAttempts = result.remainingAttempts
+                        if (result.isLocked) {
+                            showError("Too many failed attempts. PIN is locked!")
+                        } else {
+                            showError("Invalid PIN. ${result.remainingAttempts} attempts remaining")
+                        }
+                        delay(800)
+                        resetPin()
+                    }
 
-                ValidationState.INVALID -> {
-                    delay(800)
-                    resetPin()
+                    is ValidatePinResult.Locked -> {
+                        val now = Clock.System.now().toEpochMilliseconds()
+                        val remainingMillis = result.lockedUntil - now
+
+                        // Handle negative or zero time
+                        val remainingTime = if (remainingMillis <= 0) {
+                            "a moment"  // Lockout has already expired
+                        } else if (remainingMillis < 1000) {
+                            "less than 1 second"
+                        } else if (remainingMillis < 60_000) {
+                            val seconds = remainingMillis / 1000
+                            "$seconds second${if (seconds != 1L) "s" else ""}"
+                        } else if (remainingMillis < 3_600_000) {
+                            val minutes = remainingMillis / 60_000
+                            "$minutes minute${if (minutes != 1L) "s" else ""}"
+                        } else {
+                            val hours = remainingMillis / 3_600_000
+                            "$hours hour${if (hours != 1L) "s" else ""}"
+                        }
+                        showError("PIN is locked. Try again in $remainingTime")
+                        delay(800)
+                        resetPin()
+                    }
+
+                    is ValidatePinResult.PinNotFound -> {
+                        showError("No PIN set up. Please create a PIN first")
+                        delay(800)
+                        resetPin()
+                        showError = false
+                    }
+
+                    is ValidatePinResult.Error -> {
+                        showError("Validation failed: ${result.exception.message}")
+                        delay(800)
+                        resetPin()
+                        showError = false
+                    }
+
+                    is ValidatePinResult.Success -> {
+                        delay(300)
+                        onSuccess(enteredPin)
+                    }
                 }
-
-                else -> {}
             }
         }
     }
@@ -279,10 +337,10 @@ fun PinLockScreen(
                     }
 
                     // Error Message
-                    if (validationState == ValidationState.INVALID) {
+                    if (showError && errorMessage != null) {
                         Text(
-                            text = "Invalid PIN",
-                            fontSize = 14.sp,
+                            text = "$errorMessage",
+                            fontSize = 12.sp,
                             color = Color.Red,
                             modifier = Modifier.padding(top = 8.dp)
                         )
@@ -330,9 +388,6 @@ fun PinLockScreen(
                         Spacer(modifier = Modifier.width(16.dp))
                         KeypadButton("←") { deleteDigit() }
                     }
-
-
-
                     Spacer(modifier = Modifier.height(16.dp))
                 }
             }
@@ -445,5 +500,5 @@ fun KeypadButton(
 }
 
 enum class ValidationState {
-    EMPTY, ENTERING, VALID, INVALID
+    EMPTY, ENTERING, VALID, INVALID, LOCKED, NOT_FOUND, ERROR
 }
