@@ -1,6 +1,10 @@
 package dev.ohs.player.reference.client.app.security
 
+
 import dev.ohs.player.reference.client.app.models.PinData
+import dev.ohs.player.reference.client.app.models.AppConfig
+import dev.ohs.player.reference.client.app.utils.HexUtils
+import dev.ohs.player.reference.client.app.utils.TimeUtils
 import eu.anifantakis.lib.ksafe.KSafe
 import eu.anifantakis.lib.ksafe.KSafeWriteMode
 import kotlinx.serialization.json.Json
@@ -8,11 +12,9 @@ import org.kotlincrypto.hash.sha2.SHA256
 import kotlin.random.Random
 import kotlin.time.Clock
 
-import dev.ohs.player.reference.client.app.utils.HexUtils
-
-
 class PinManager(
-    private val secureStorage: KSafe
+    private val secureStorage: KSafe,
+    private val getConfig: () -> AppConfig?
 ) {
 
     private val pinStorageKey = "user_pin_data"
@@ -22,18 +24,20 @@ class PinManager(
         ignoreUnknownKeys = true
     }
 
-    private val PBKDF2_ITERATIONS = 10000
-    private val KEY_LENGTH = 256
-
     /**
      * Creates a new PIN for the user. Hashes it and stores it securely.
      * Returns Result.success(true) if successful, Result.failure with error if fails.
      */
     suspend fun createPin(newPin: String): Result<Boolean> {
         return try {
-            // Validate PIN strength
-            if (!isValidPin(newPin)) {
-                return Result.failure(IllegalArgumentException("PIN must be 4-6 digits"))
+            val config = getConfig()
+                ?: return Result.failure(IllegalStateException("Configuration not loaded"))
+
+            // Validate PIN length against config
+            if (!isValidPinLength(newPin, config.loginConfig.pinLength)) {
+                return Result.failure(
+                    IllegalArgumentException("PIN must be exactly ${config.loginConfig.pinLength} digits")
+                )
             }
 
             // Check if PIN already exists
@@ -48,10 +52,11 @@ class PinManager(
             // Hash PIN with salt using PBKDF2
             val hashedPin = hashPinWithPBKDF2(newPin, salt)
 
-            // Create PIN data with metadata
+            // Create PIN data with metadata including PIN length
             val pinData = PinData(
                 hashedPin = hashedPin,
                 salt = salt,
+                pinLength = newPin.length,
                 createdAt = Clock.System.now().toEpochMilliseconds(),
                 attempts = 0,
                 isLocked = false
@@ -74,6 +79,9 @@ class PinManager(
      */
     suspend fun validatePin(enteredPin: String): ValidatePinResult {
         return try {
+            val config = getConfig()
+                ?: return ValidatePinResult.Error(IllegalStateException("Configuration not loaded"))
+
             val jsonString = secureStorage.get(pinStorageKey, "")
 
             if (jsonString.isEmpty()) {
@@ -82,9 +90,30 @@ class PinManager(
 
             val pinData = json.decodeFromString<PinData>(jsonString)
 
+            // Check if stored PIN length matches current config requirement
+            if (pinData.pinLength != config.loginConfig.pinLength) {
+                println("PIN length mismatch: stored=${pinData.pinLength}, required=${config.loginConfig.pinLength}")
+                // Clear the mismatched PIN
+                resetPin()
+                return ValidatePinResult.PinLengthMismatch(
+                    required = config.loginConfig.pinLength,
+                    existing = pinData.pinLength
+                )
+            }
+
+            // Check if entered PIN length matches config
+            if (enteredPin.length != config.loginConfig.pinLength) {
+                return ValidatePinResult.InvalidLength(
+                    required = config.loginConfig.pinLength,
+                    actual = enteredPin.length
+                )
+            }
+
             // Check if PIN is locked
             if (pinData.isCurrentlyLocked()) {
-                return ValidatePinResult.Locked(pinData.lockedUntil)
+                val remainingMillis = (pinData.lockedUntil - Clock.System.now()
+                    .toEpochMilliseconds()).coerceAtLeast(0)
+                return ValidatePinResult.Locked(pinData.lockedUntil, remainingMillis)
             }
 
             // Hash entered PIN with stored salt
@@ -114,14 +143,18 @@ class PinManager(
      */
     suspend fun updatePin(currentPin: String, newPin: String): Result<Boolean> {
         return try {
-            // Validate new PIN
-            if (!isValidPin(newPin)) {
-                return Result.failure(IllegalArgumentException("New PIN must be 4-6 digits"))
+            val config = getConfig()
+                ?: return Result.failure(IllegalStateException("Configuration not loaded"))
+
+            // Validate new PIN length against config
+            if (!isValidPinLength(newPin, config.loginConfig.pinLength)) {
+                return Result.failure(
+                    IllegalArgumentException("PIN must be exactly ${config.loginConfig.pinLength} digits")
+                )
             }
 
             // Verify current PIN
-            val validationResult = validatePin(currentPin)
-            when (validationResult) {
+            when (val validationResult = validatePin(currentPin)) {
                 is ValidatePinResult.Success -> {
                     // Create new PIN data
                     val salt = generateSecureSalt()
@@ -130,6 +163,7 @@ class PinManager(
                     val pinData = PinData(
                         hashedPin = hashedPin,
                         salt = salt,
+                        pinLength = newPin.length,
                         createdAt = Clock.System.now().toEpochMilliseconds()
                     )
 
@@ -144,11 +178,20 @@ class PinManager(
                 }
 
                 is ValidatePinResult.Locked -> {
-                    Result.failure(IllegalStateException("PIN is locked. Please try again later."))
+                    val remainingTime = TimeUtils.formatLockoutTime(validationResult.remainingMillis)
+                    Result.failure(IllegalStateException("PIN is locked. Try again in $remainingTime"))
                 }
 
                 is ValidatePinResult.PinNotFound -> {
                     Result.failure(IllegalStateException("No PIN exists. Use createPin instead."))
+                }
+
+                is ValidatePinResult.InvalidLength -> {
+                    Result.failure(IllegalStateException("PIN must be exactly ${validationResult.required} digits"))
+                }
+
+                is ValidatePinResult.PinLengthMismatch -> {
+                    Result.failure(IllegalStateException("PIN length requirement changed. Please set up a new PIN."))
                 }
 
                 is ValidatePinResult.Error -> {
@@ -159,6 +202,28 @@ class PinManager(
             println("Failed to update PIN: ${e.message}")
             Result.failure(e)
         }
+    }
+
+    /**
+     * Checks if existing PIN is valid for current config requirements.
+     */
+    suspend fun isPinValidForCurrentConfig(): Boolean {
+        val config = getConfig() ?: return false
+        val jsonString = secureStorage.get(pinStorageKey, "") ?: return false
+
+        return try {
+            val pinData = json.decodeFromString<PinData>(jsonString)
+            pinData.pinLength == config.loginConfig.pinLength
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Gets the required PIN length from config.
+     */
+    fun getRequiredPinLength(): Int {
+        return getConfig()?.loginConfig?.pinLength ?: 4
     }
 
     /**
@@ -198,9 +263,14 @@ class PinManager(
 
             val pinData = json.decodeFromString<PinData>(jsonString)
             when {
-                pinData.isCurrentlyLocked() -> PinStatus.Locked(pinData.lockedUntil)
-                pinData.isLocked -> PinStatus.Locked(pinData.lockedUntil)
-                else -> PinStatus.Set(pinData.createdAt)
+                pinData.isCurrentlyLocked() -> {
+                    val remainingMillis = (pinData.lockedUntil - Clock.System.now()
+                        .toEpochMilliseconds()).coerceAtLeast(0)
+                    PinStatus.Locked(pinData.lockedUntil, remainingMillis)
+                }
+
+                pinData.isLocked -> PinStatus.Locked(pinData.lockedUntil, 0)
+                else -> PinStatus.Set(pinData.createdAt, pinData.pinLength)
             }
         } catch (e: Exception) {
             PinStatus.Error(e.message ?: "Unknown error")
@@ -209,8 +279,8 @@ class PinManager(
 
     // Private helper functions
 
-    private fun isValidPin(pin: String): Boolean {
-        return pin.length in 4..6 && pin.all { it.isDigit() }
+    private fun isValidPinLength(pin: String, requiredLength: Int): Boolean {
+        return pin.length == requiredLength && pin.all { it.isDigit() }
     }
 
     /**
@@ -219,8 +289,6 @@ class PinManager(
      */
     private fun generateSecureSalt(): String {
         val saltBytes = ByteArray(32) // 256-bit salt
-        // Note: For production, use platform-specific secure random
-        // For now using Kotlin's Random
         saltBytes.indices.forEach { i ->
             saltBytes[i] = Random.nextInt(0, 256).toByte()
         }
@@ -232,21 +300,14 @@ class PinManager(
      * Returns hex-encoded hash string.
      */
     private fun hashPinWithPBKDF2(pin: String, salt: String): String {
-        // Convert hex salt back to bytes
         val saltBytes = HexUtils.decode(salt)
-
-        // Combine salt and PIN
         val pinBytes = pin.encodeToByteArray()
         val combined = saltBytes + pinBytes
-
-        // For KMP, we need a platform-agnostic hashing approach
-        // Using SHA256 as a simpler alternative that works across platforms
         return hashPinWithSHA256(pin, HexUtils.encode(saltBytes))
     }
 
     /**
      * Simple SHA256 hashing (works across all KMP platforms).
-     * For production, consider using a proper PBKDF2 implementation per platform.
      */
     private fun hashPinWithSHA256(pin: String, saltHex: String): String {
         val input = "$saltHex:$pin".encodeToByteArray()
@@ -267,7 +328,9 @@ sealed class ValidatePinResult {
     object Success : ValidatePinResult()
     object PinNotFound : ValidatePinResult()
     data class Failed(val remainingAttempts: Int, val isLocked: Boolean) : ValidatePinResult()
-    data class Locked(val lockedUntil: Long) : ValidatePinResult()
+    data class Locked(val lockedUntil: Long, val remainingMillis: Long) : ValidatePinResult()
+    data class InvalidLength(val required: Int, val actual: Int) : ValidatePinResult()
+    data class PinLengthMismatch(val required: Int, val existing: Int) : ValidatePinResult()
     data class Error(val exception: Exception) : ValidatePinResult()
 }
 
@@ -276,7 +339,7 @@ sealed class ValidatePinResult {
  */
 sealed class PinStatus {
     object NotSet : PinStatus()
-    data class Set(val createdAt: Long) : PinStatus()
-    data class Locked(val lockedUntil: Long) : PinStatus()
+    data class Set(val createdAt: Long, val pinLength: Int) : PinStatus()
+    data class Locked(val lockedUntil: Long, val remainingMillis: Long) : PinStatus()
     data class Error(val message: String) : PinStatus()
 }

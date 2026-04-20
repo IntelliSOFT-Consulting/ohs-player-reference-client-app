@@ -11,6 +11,7 @@
   "syncInterval": 30,
   "loginConfig": {
     "showLogo": true,
-    "enablePin": true
+    "enablePin": true,
+    "pinLength": 6
   }
 }

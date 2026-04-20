@@ -16,12 +16,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.ohs.player.reference.client.app.components.AppLogo
+import dev.ohs.player.reference.client.app.configuration.ConfigurationManager
 import dev.ohs.player.reference.client.app.security.PinManager
 import dev.ohs.player.reference.client.app.security.platformEncryptedKSafe
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private const val SETUP_PIN_LENGTH = 4
 
 enum class PinSetupStep {
     SET_PIN,
@@ -34,11 +34,20 @@ enum class PinSetupStep {
 fun SetPinLockScreen(
     appName: String = "App Name",
     showLogo: Boolean,
+    pinLength: Int,
     onSetupComplete: () -> Unit = {}
 ) {
-    val pinManager = remember { PinManager(platformEncryptedKSafe) }
     val scope = rememberCoroutineScope()
+    val configManager = remember { ConfigurationManager() }
+    val config by configManager.config.collectAsState()
 
+    // Initialize PinManager with config getter
+    val pinManager = remember {
+        PinManager(
+            secureStorage = platformEncryptedKSafe,
+            getConfig = { configManager.config.value }
+        )
+    }
     var currentStep by remember { mutableStateOf(PinSetupStep.SET_PIN) }
     var firstPin by remember { mutableStateOf("") }
     var enteredPin by remember { mutableStateOf("") }
@@ -51,11 +60,11 @@ fun SetPinLockScreen(
     }
 
     fun addDigit(digit: String) {
-        if (enteredPin.length < SETUP_PIN_LENGTH) {
+        if (enteredPin.length < pinLength) {
             enteredPin += digit
             errorMessage = null
 
-            if (enteredPin.length == SETUP_PIN_LENGTH) {
+            if (enteredPin.length == pinLength) {
                 when (currentStep) {
                     PinSetupStep.SET_PIN -> {
                         firstPin = enteredPin
@@ -121,6 +130,8 @@ fun SetPinLockScreen(
                     enteredPin = enteredPin,
                     errorMessage = errorMessage,
                     appName = appName,
+                    showLogo = showLogo,
+                    pinLength = pinLength,
                     onDigitClick = { addDigit(it) },
                     onDelete = { deleteDigit() },
                     onBack = {
@@ -180,6 +191,8 @@ private fun PinSetupContent(
     enteredPin: String,
     errorMessage: String?,
     appName: String,
+    showLogo: Boolean,
+    pinLength: Int,
     onDigitClick: (String) -> Unit,
     onDelete: () -> Unit,
     onBack: () -> Unit
@@ -191,16 +204,7 @@ private fun PinSetupContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Icon
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFE3F2FD)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(text = "🔐", fontSize = 32.sp)
-        }
+        AppLogo(showLogo = showLogo)
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -245,7 +249,7 @@ private fun PinSetupContent(
 
         // PIN dots
         Row(horizontalArrangement = Arrangement.Center) {
-            repeat(SETUP_PIN_LENGTH) { index ->
+            repeat(pinLength) { index ->
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 8.dp)

@@ -41,7 +41,8 @@ class ConfigurationManager {
             syncInterval = 30,
             loginConfig = LoginConfig(
                 showLogo = true,
-                enablePin = true
+                enablePin = true,
+                pinLength = 4
             )
         )
     }

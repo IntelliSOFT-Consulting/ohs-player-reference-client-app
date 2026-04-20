@@ -10,6 +10,7 @@ data class PinData(
     val salt: String,
     val createdAt: Long = Clock.System.now().toEpochMilliseconds(),
     var attempts: Int = 0,
+    var pinLength: Int = 4,
     var isLocked: Boolean = false,
     var lastAttemptAt: Long = 0,
     var lockedUntil: Long = 0

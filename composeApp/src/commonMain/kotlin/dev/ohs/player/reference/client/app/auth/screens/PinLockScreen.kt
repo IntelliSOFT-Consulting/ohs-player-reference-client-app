@@ -1,6 +1,6 @@
 package dev.ohs.player.reference.client.app.auth.screens
 
-// PinLockScreen.kt - Exact match to your screenshot design
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -45,6 +45,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,16 +62,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.ohs.player.reference.client.app.components.AppLogo
+import dev.ohs.player.reference.client.app.configuration.ConfigurationManager
 import dev.ohs.player.reference.client.app.security.PinManager
 import dev.ohs.player.reference.client.app.security.ValidatePinResult
 import dev.ohs.player.reference.client.app.security.platformEncryptedKSafe
-import dev.ohs.player.reference.client.app.utils.TimeUtils
-import dev.ohs.player.reference.client.app.utils.TimeUtils.formatLockoutTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
-private const val PIN_LENGTH = 4
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +78,7 @@ fun PinLockScreen(
     appName: String = "App Name",
     deviceName: String = "Enter pin for W4VV-01",
     showLogo: Boolean,
+    pinLength: Int,
     onSuccess: (pin: String) -> Unit = {},
     onAdminLogin: () -> Unit = {},
     onSettings: () -> Unit = {},
@@ -88,9 +89,15 @@ fun PinLockScreen(
     var showForgotDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-
+    val configManager = remember { ConfigurationManager() }
+    val config by configManager.config.collectAsState()
     // Assuming you have a way to get your PinManager instance (e.g., from a DI framework)
-    val pinManager = remember { PinManager(platformEncryptedKSafe) }
+    val pinManager = remember {
+        PinManager(
+            platformEncryptedKSafe,
+            getConfig = { configManager.config.value }
+        )
+    }
     var isFirstTimeSetup by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
     var remainingAttempts by remember { mutableStateOf(0) }
@@ -126,6 +133,9 @@ fun PinLockScreen(
                     is ValidatePinResult.Locked -> ValidationState.LOCKED
                     is ValidatePinResult.PinNotFound -> ValidationState.NOT_FOUND
                     is ValidatePinResult.Error -> ValidationState.ERROR
+                    else -> {
+                        ValidationState.ERROR
+                    }
                 }
                 when (result) {
                     is ValidatePinResult.Failed -> {
@@ -181,15 +191,17 @@ fun PinLockScreen(
                         delay(300)
                         onSuccess(enteredPin)
                     }
+
+                    else -> {}
                 }
             }
         }
     }
 
     fun addDigit(digit: String) {
-        if (enteredPin.length < PIN_LENGTH && validationState != ValidationState.VALID) {
+        if (enteredPin.length < pinLength && validationState != ValidationState.VALID) {
             enteredPin += digit
-            if (enteredPin.length == PIN_LENGTH) {
+            if (enteredPin.length == pinLength) {
                 validatePin()
             } else {
                 validationState = ValidationState.ENTERING
@@ -206,14 +218,11 @@ fun PinLockScreen(
     }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = Color.White,
-        topBar = {
+        modifier = Modifier.fillMaxSize(), containerColor = Color.White, topBar = {
             TopAppBar(
                 title = {
 
-                },
-                actions = {
+                }, actions = {
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
@@ -226,9 +235,7 @@ fun PinLockScreen(
                     DropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .shadow(4.dp)
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).shadow(4.dp)
                     ) {
                         DropdownMenuItem(
                             text = { Text("Admin Login", fontWeight = FontWeight.Medium) },
@@ -238,8 +245,7 @@ fun PinLockScreen(
                             },
                             leadingIcon = {
                                 Icon(Icons.Default.AdminPanelSettings, contentDescription = null)
-                            }
-                        )
+                            })
                         DropdownMenuItem(
                             text = { Text("Settings", fontWeight = FontWeight.Medium) },
                             onClick = {
@@ -248,48 +254,28 @@ fun PinLockScreen(
                             },
                             leadingIcon = {
                                 Icon(Icons.Default.Settings, contentDescription = null)
-                            }
-                        )
+                            })
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.White,
-                    scrolledContainerColor = Color.White
+                }, colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.White, scrolledContainerColor = Color.White
                 )
             )
-        }
-    ) { paddingValues ->
+        }) { paddingValues ->
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else {
             BoxWithConstraints(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-            )
-            {
+                modifier = Modifier.fillMaxSize().padding(paddingValues)
+            ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 24.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    // Logo / Icon at top
-                    Box(
-                        modifier = Modifier
-                            .size(60.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFE3F2FD)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "🔒",
-                            fontSize = 32.sp
-                        )
-                    }
+
+                    AppLogo(showLogo = showLogo)
 
                     Spacer(modifier = Modifier.height(24.dp))
 
@@ -318,13 +304,10 @@ fun PinLockScreen(
                         horizontalArrangement = Arrangement.Center,
                         modifier = Modifier.padding(6.dp)
                     ) {
-                        repeat(PIN_LENGTH) { index ->
+                        repeat(pinLength) { index ->
                             Box(
-                                modifier = Modifier
-                                    .padding(horizontal = 8.dp)
-                                    .size(12.dp)
-                                    .clip(CircleShape)
-                                    .background(
+                                modifier = Modifier.padding(horizontal = 8.dp).size(12.dp)
+                                    .clip(CircleShape).background(
                                         when {
                                             validationState == ValidationState.VALID -> Color.Green
                                             validationState == ValidationState.INVALID -> Color.Red
@@ -350,8 +333,7 @@ fun PinLockScreen(
 
                     // Forgot PIN Button
                     TextButton(
-                        onClick = { showForgotDialog = true },
-                        modifier = Modifier.padding(1.dp)
+                        onClick = { showForgotDialog = true }, modifier = Modifier.padding(1.dp)
                     ) {
                         Text(
                             text = "Forgot PIN?",
@@ -428,23 +410,19 @@ fun PinLockScreen(
                     onClick = {
                         showForgotDialog = false
                         onForgotPin()
-                    },
-                    colors = ButtonDefaults.buttonColors(
+                    }, colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF2196F3)
-                    ),
-                    shape = RoundedCornerShape(8.dp)
+                    ), shape = RoundedCornerShape(8.dp)
                 ) {
                     Text("DIAL NUMBER", color = Color.White)
                 }
             },
             dismissButton = {
                 TextButton(
-                    onClick = { showForgotDialog = false }
-                ) {
+                    onClick = { showForgotDialog = false }) {
                     Text("CANCEL", color = Color.Gray)
                 }
-            }
-        )
+            })
     }
 }
 
@@ -453,8 +431,7 @@ fun KeypadRow(
     buttons: List<Pair<String, () -> Unit>>
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center
+        modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center
     ) {
         buttons.forEachIndexed { index, (label, onClick) ->
             if (index > 0) Spacer(modifier = Modifier.width(16.dp))
@@ -465,30 +442,21 @@ fun KeypadRow(
 
 @Composable
 fun KeypadButton(
-    label: String,
-    onClick: () -> Unit
+    label: String, onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
 
     Box(
-        modifier = Modifier
-            .size(70.dp)
-            .clip(CircleShape)
-            .background(
-                color = Color.White,
-                shape = CircleShape
-            )
-            .shadow(
-                elevation = 2.dp,
-                shape = CircleShape,
-                ambientColor = Color.Black.copy(alpha = 0.1f),
-                spotColor = Color.Black.copy(alpha = 0.1f)
-            )
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null
-            ) { onClick() },
-        contentAlignment = Alignment.Center
+        modifier = Modifier.size(70.dp).clip(CircleShape).background(
+            color = Color.White, shape = CircleShape
+        ).shadow(
+            elevation = 2.dp,
+            shape = CircleShape,
+            ambientColor = Color.Black.copy(alpha = 0.1f),
+            spotColor = Color.Black.copy(alpha = 0.1f)
+        ).clickable(
+            interactionSource = interactionSource, indication = null
+        ) { onClick() }, contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,

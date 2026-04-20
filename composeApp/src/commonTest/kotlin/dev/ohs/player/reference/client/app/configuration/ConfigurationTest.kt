@@ -75,7 +75,8 @@ class ConfigurationTest {
                 "syncInterval": 60,
                 "loginConfig": {
                     "showLogo": false,
-                    "enablePin": false
+                    "enablePin": false,
+                    "pinLength":4
                 }
             }
         """.trimIndent()

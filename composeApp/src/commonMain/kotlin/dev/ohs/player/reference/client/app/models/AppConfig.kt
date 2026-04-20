@@ -16,5 +16,6 @@ data class AppConfig(
 @Serializable
 data class LoginConfig(
     val showLogo: Boolean,
-    val enablePin: Boolean
+    val enablePin: Boolean,
+    val pinLength: Int
 )

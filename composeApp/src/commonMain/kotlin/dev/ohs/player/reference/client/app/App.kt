@@ -76,7 +76,6 @@ fun MainAppContent(config: AppConfig) {
                 val existingPin = platformEncryptedKSafe.get("user_pin_data", "")
                 hasPin = existingPin.isNotEmpty()
             } else {
-                // If PIN is disabled, just set logged in
                 hasPin = false
                 isLoggedIn = true
             }
@@ -119,6 +118,7 @@ fun MainAppContent(config: AppConfig) {
                 SetPinLockScreen(
                     appName = config.appTitle,
                     showLogo = shouldShowLogo,
+                    pinLength=config.loginConfig.pinLength,
                     onSetupComplete = {
                         hasPin = true
                     }
@@ -130,6 +130,7 @@ fun MainAppContent(config: AppConfig) {
                     appName = config.appTitle,
                     deviceName = "Enter pin for ${config.appId}",
                     showLogo = shouldShowLogo,
+                    pinLength=config.loginConfig.pinLength,
                     onSuccess = { pin ->
                         scope.launch {
                             platformEncryptedKSafe.put("is_logged_in", "true")
